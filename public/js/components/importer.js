@@ -1,6 +1,5 @@
 import { h, icon } from '../core/dom.js';
 import { api } from '../api/client.js';
-import { saver } from '../core/saver.js';
 import { openModal } from './modal.js';
 import { toast } from './toast.js';
 
@@ -17,7 +16,8 @@ export async function importFile(file) {
     return null;
   }
   try {
-    const { project, counts } = await saver.track(api.projects.import(doc));
+    // Not routed through the save tracker: a rejected file is not a failed save of user edits.
+    const { project, counts } = await api.projects.import(doc);
     toast(`Imported "${project.name}": ${counts.objects} objects, ${counts.relationships} relationships.`, 'success');
     return project;
   } catch (e) {
