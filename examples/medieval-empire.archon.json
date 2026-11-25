@@ -1,0 +1,105 @@
+{
+  "format": "archon",
+  "format_version": 1,
+  "project": {
+    "name": "Medieval Empire (sample)",
+    "description": "Sample import: a slice of a Godot strategy game's architecture."
+  },
+  "modules": [
+    { "key": "units", "name": "Units", "color": "#55A9E8" },
+    { "key": "world", "name": "World", "color": "#4BC58A" },
+    { "key": "economy", "name": "Economy", "color": "#E8AD53", "parent": "world" }
+  ],
+  "objects": [
+    {
+      "type": "class", "name": "Unit", "module": "units",
+      "description": "Base class for anything that walks.",
+      "health_status": "good", "implementation_status": "complete",
+      "file_path": "scripts/units/unit.gd",
+      "children": [
+        { "type": "property", "name": "speed" },
+        { "type": "method", "name": "move_to_target()" }
+      ]
+    },
+    {
+      "key": "Villager", "type": "class", "name": "Villager", "module": "units",
+      "description": "Worker unit. Gathers resources and constructs buildings.",
+      "health_status": "good", "implementation_status": "in_progress",
+      "file_path": "scripts/units/villager.gd",
+      "metadata": { "extends": "CharacterBody2D" },
+      "children": [
+        { "type": "method", "name": "gather_resource()" },
+        { "type": "method", "name": "update_animation()", "health_status": "warning" },
+        { "type": "signal", "name": "resource_delivered" }
+      ]
+    },
+    {
+      "type": "manager", "name": "VillagerManager", "module": "units",
+      "health_status": "warning", "implementation_status": "in_progress",
+      "description": "Spawns villagers and assigns jobs. Job assignment is O(n^2), needs work.",
+      "children": [
+        { "type": "method", "name": "assign_job()", "health_status": "bad", "implementation_status": "broken" },
+        { "type": "method", "name": "on_resource_delivered()" }
+      ]
+    },
+    {
+      "type": "class", "name": "Building", "module": "world",
+      "health_status": "good", "implementation_status": "complete",
+      "children": [
+        { "type": "method", "name": "place()" },
+        { "type": "method", "name": "upgrade()" },
+        { "type": "method", "name": "demolish()", "implementation_status": "planned" },
+        { "type": "property", "name": "level" }
+      ]
+    },
+    {
+      "type": "interface", "name": "IStorable", "module": "economy",
+      "children": [ { "type": "method", "name": "store()" } ]
+    },
+    {
+      "type": "class", "name": "Stockpile", "module": "economy",
+      "children": [ { "type": "method", "name": "store()" } ]
+    },
+    {
+      "type": "manager", "name": "NodeManager", "module": "world",
+      "description": "Tracks resource nodes (trees, stone, gold) on the map.",
+      "children": [
+        { "type": "method", "name": "find_nearest()" },
+        { "type": "method", "name": "deplete()" }
+      ]
+    }
+  ],
+  "relationships": [
+    { "source": "Villager", "target": "Unit", "type": "inherits" },
+    { "source": "Stockpile", "target": "Building", "type": "inherits" },
+    { "source": "Stockpile", "target": "IStorable", "type": "implements" },
+    { "source": "VillagerManager", "target": "Villager", "type": "depends_on" },
+    { "source": "Villager.gather_resource", "target": "NodeManager.find_nearest()", "type": "calls" },
+    { "source": "Villager.gather_resource()", "target": "Unit.move_to_target()", "type": "calls" },
+    { "source": "Villager.resource_delivered", "target": "VillagerManager.on_resource_delivered()", "type": "signal",
+      "description": "Connected in VillagerManager._ready()" },
+    { "source": "VillagerManager.on_resource_delivered()", "target": "Stockpile.store()", "type": "calls" }
+  ],
+  "tasks": [
+    { "title": "Rewrite job assignment with a priority queue", "status": "todo", "priority": "high",
+      "object": "VillagerManager.assign_job()" },
+    { "title": "Demolish refunds 50% of cost", "status": "backlog", "priority": "low", "object": "Building.demolish()" },
+    { "title": "Fix walk animation flicker", "status": "in_progress", "priority": "medium",
+      "object": "Villager.update_animation()" }
+  ],
+  "notes": [
+    { "title": "Signals over direct calls for unit events", "type": "decision", "object": "Villager",
+      "content": "## Decision\nUnits emit signals; managers subscribe.\n\n**Why:** keeps units unaware of managers, so units can be tested in isolation." }
+  ],
+  "canvas": {
+    "positions": [
+      { "object": "Unit", "x": 0, "y": 0 },
+      { "object": "Villager", "x": 0, "y": 260 },
+      { "object": "VillagerManager", "x": 360, "y": 260 },
+      { "object": "NodeManager", "x": -360, "y": 260 },
+      { "object": "Building", "x": 360, "y": 560 },
+      { "object": "Stockpile", "x": 720, "y": 560 },
+      { "object": "IStorable", "x": 720, "y": 260 }
+    ]
+  }
+}
