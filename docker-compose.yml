@@ -1,0 +1,29 @@
+services:
+  archon:
+    build: .
+    image: archon:0.1.0
+    container_name: archon
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_PATH: /data/archon.db
+    volumes:
+      # The container runs as uid 1000: `mkdir -p data && sudo chown 1000:1000 data`
+      - ./data:/data
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # To join an existing reverse-proxy network, see docker-compose.override.yml.example

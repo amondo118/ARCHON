@@ -1,0 +1,14 @@
+# Copy to docker-compose.override.yml (git-ignored) and adjust.
+services:
+  archon:
+    # Option A: reach ARCHON directly for local testing
+    ports:
+      - "127.0.0.1:3000:3000"
+    # Option B: attach to your reverse proxy's network
+    # networks:
+    #   - proxy
+
+# networks:
+#   proxy:
+#     external: true
+#     name: your-proxy-network-name
