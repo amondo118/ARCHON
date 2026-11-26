@@ -4,7 +4,7 @@ import { saver } from './core/saver.js';
 import { openModal } from './components/modal.js';
 import { toast, toastError } from './components/toast.js';
 import { installDropZone, pickAndImport } from './components/importer.js';
-import { renderSidebar, NAV } from './components/sidebar.js';
+import { renderSidebar, syncSidebarSelection, NAV } from './components/sidebar.js';
 import { mountArchitecture } from './views/architecture.js';
 import { mountInspector } from './views/inspector.js';
 import { mountTasks } from './views/tasks.js';
@@ -195,6 +195,7 @@ async function boot() {
   }
   // Object counts in the module tree; cheap enough to refresh on structural changes.
   store.on('graph', () => renderSidebar($('sidebar'), { view: route.view, navigate, newProject, importJson }));
+  store.on('selection', () => syncSidebarSelection($('sidebar')));
   installDropZone(onImported);
   window.addEventListener('hashchange', onRoute);
   window.addEventListener('unhandledrejection', (e) => toastError(e.reason));

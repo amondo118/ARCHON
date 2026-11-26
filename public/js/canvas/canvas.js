@@ -7,7 +7,7 @@ import { canvasStyle } from './style.js';
  * about the API. Data comes in through `getData()`, user intent goes out
  * through callbacks.
  *
- * callbacks: onSelect(objId|null), onEdgeTap(relIds), onConnect(sourceId, targetId),
+ * callbacks: onSelectionChange(objIds, primaryId), onEdgeTap(relIds), onConnect(sourceId, targetId),
  *            onMove([[objId, {x,y}]]), onAutoPlace([[objId, {x,y}]]), onToggleCollapse(objId),
  *            onContextMenu(objId, renderedPos)
  */
@@ -17,8 +17,8 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
     style: canvasStyle(relationshipTypes),
     minZoom: 0.1,
     maxZoom: 3,
-    boxSelectionEnabled: true, // shift + drag
-    selectionType: 'single',
+    boxSelectionEnabled: true, // shift + drag on the background
+    selectionType: 'single', // Shift/Ctrl/Cmd + click adds to the selection
   });
 
   let signature = '';
@@ -26,6 +26,8 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
   let roots = [];
   let connectFrom = null;
   let dragGroup = null;
+  let applyingSelection = false;
+  let lastTapped = null;
 
   const objIdOf = (ele) => ele.data('objId');
   const rootIdOf = (node) => (node.isParent() ? node.id() : node.data('parent') ?? node.id());
@@ -62,20 +64,80 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
         cy.edges().remove();
       }
       cy.add(built.edges);
+      cy.nodes('.compound').unselectify(); // cards are selected through their header row
     });
     signature = sig;
+    updatePorts();
   }
 
-  // ---------------------------------------------------------------- selection
-  function select(objId) {
-    cy.elements(':selected').unselect();
-    if (!objId) return;
-    const rep = repOf(objId);
-    if (!rep) return;
-    const node = cy.getElementById(rep);
-    const target = node.isParent() ? cy.getElementById(`hdr:${rep}`) : node;
-    target.select();
+  // ---------------------------------------------------------------- ports
+  /**
+   * Edges touching a member row attach to a dot on the row's left or right
+   * side, whichever faces the other end of the edge.
+   */
+  function updatePorts() {
+    cy.batch(() => {
+      const sides = new Map(); // member node id -> Set('l'|'r')
+      cy.edges().not('.ghost').forEach((e) => {
+        const s = e.source();
+        const t = e.target();
+        e.removeClass('src-l src-r tgt-l tgt-r');
+        if (s.data('kind') === 'member') {
+          const side = t.position('x') >= s.position('x') ? 'r' : 'l';
+          e.addClass(`src-${side}`);
+          if (!sides.has(s.id())) sides.set(s.id(), new Set());
+          sides.get(s.id()).add(side);
+        }
+        if (t.data('kind') === 'member') {
+          const side = s.position('x') >= t.position('x') ? 'r' : 'l';
+          e.addClass(`tgt-${side}`);
+          if (!sides.has(t.id())) sides.set(t.id(), new Set());
+          sides.get(t.id()).add(side);
+        }
+      });
+      cy.nodes('.member').forEach((n) => {
+        n.removeClass('ports-l ports-r ports-lr');
+        const set = sides.get(n.id());
+        if (set) n.addClass(`ports-${set.has('l') ? 'l' : ''}${set.has('r') ? 'r' : ''}`);
+      });
+    });
   }
+  let portFrame = 0;
+  const schedulePorts = () => {
+    if (!portFrame) portFrame = requestAnimationFrame(() => { portFrame = 0; updatePorts(); });
+  };
+
+  // ---------------------------------------------------------------- selection
+  /** Mirror the store's selection on the canvas (without echoing it back). */
+  function select(objIds) {
+    applyingSelection = true;
+    cy.batch(() => {
+      cy.elements(':selected').unselect();
+      for (const id of objIds ?? []) {
+        const rep = repOf(id);
+        if (!rep) continue;
+        const node = cy.getElementById(rep);
+        // Visible rows select themselves; hidden members select their card.
+        const exact = cy.getElementById(id);
+        const target = exact.nonempty() && !exact.isParent() ? exact
+          : node.isParent() ? cy.getElementById(`hdr:${rep}`) : node;
+        target.select();
+      }
+    });
+    applyingSelection = false;
+  }
+
+  const selectedObjIds = () => [...new Set(cy.nodes(':selected').map((n) => n.data('objId')).filter(Boolean))];
+  let selectionQueued = false;
+  cy.on('select unselect', () => {
+    if (applyingSelection || selectionQueued) return;
+    selectionQueued = true;
+    queueMicrotask(() => {
+      selectionQueued = false;
+      const ids = selectedObjIds();
+      cb.onSelectionChange(ids, ids.includes(lastTapped) ? lastTapped : null);
+    });
+  });
 
   function focus(objId) {
     const rep = repOf(objId);
@@ -86,16 +148,29 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
   }
 
   // ---------------------------------------------------------------- events
+  const additive = (e) => {
+    const o = e.originalEvent;
+    return Boolean(o && (o.shiftKey || o.ctrlKey || o.metaKey));
+  };
+  // Cytoscape's own dbltap fires for two quick clicks on *different* nodes,
+  // which made fast multi-selection collapse cards. Detect it ourselves.
+  let prevTap = { id: null, t: 0 };
   cy.on('tap', 'node', (e) => {
     const node = e.target;
     if (node.hasClass('ghost')) return;
-    if (node.isParent()) {
-      // Clicking the card background selects the card's object.
-      cy.getElementById(`hdr:${node.id()}`).select();
-    }
     const id = objIdOf(node);
     if (connectFrom) return finishConnect(id);
-    cb.onSelect(id);
+    const now = e.timeStamp || Date.now();
+    const isDouble = prevTap.id === node.id() && now - prevTap.t < 350 && !additive(e);
+    prevTap = isDouble ? { id: null, t: 0 } : { id: node.id(), t: now };
+    if (isDouble && node.data('kind') !== 'member') cb.onToggleCollapse(rootIdOf(node));
+    lastTapped = id;
+    if (node.isParent()) {
+      // Clicking the card background selects the card (via its header row).
+      const hdr = cy.getElementById(`hdr:${node.id()}`);
+      if (!additive(e)) cy.elements(':selected').not(hdr).unselect();
+      if (additive(e) && hdr.selected()) hdr.unselect(); else hdr.select();
+    }
   });
   cy.on('tap', 'edge', (e) => {
     if (e.target.hasClass('ghost')) return;
@@ -103,48 +178,56 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
   });
   cy.on('tap', (e) => {
     if (e.target === cy) {
-      if (connectFrom) return cancelConnect();
-      cb.onSelect(null);
+      if (connectFrom) cancelConnect();
     }
-  });
-  cy.on('dbltap', 'node', (e) => {
-    const root = rootIdOf(e.target);
-    if (e.target.data('kind') === 'member') return; // double-click on a row: just select
-    cb.onToggleCollapse(root);
   });
   cy.on('cxttap', 'node', (e) => {
     if (e.target.hasClass('ghost')) return;
     cb.onContextMenu(objIdOf(e.target), e.renderedPosition, rootIdOf(e.target));
   });
 
-  // Dragging any row of a card moves the whole card.
+  // Dragging moves whole cards: every row of the grabbed card, plus every other
+  // selected card or node when the grabbed one is part of the selection.
+  const rootNodes = (rootId) => {
+    const n = cy.getElementById(rootId);
+    return n.isParent() ? n.children() : n;
+  };
   cy.on('grab', 'node', (e) => {
     const node = e.target;
-    const parent = node.parent();
-    if (parent.nonempty()) {
-      dragGroup = { grabbed: node.id(), start: new Map(parent.children().map((c) => [c.id(), { ...c.position() }])) };
-    }
+    if (node.hasClass('ghost')) return;
+    const grabbedRoot = rootIdOf(node);
+    const rootIds = new Set([grabbedRoot]);
+    const grabbedSelected = node.selected() || cy.getElementById(`hdr:${grabbedRoot}`).selected();
+    if (grabbedSelected) cy.nodes(':selected').forEach((n) => rootIds.add(rootIdOf(n)));
+    const start = new Map();
+    for (const r of rootIds) rootNodes(r).forEach((n) => start.set(n.id(), { ...n.position() }));
+    // A grabbed compound moves its own children; don't fight Cytoscape over them.
+    if (node.isParent()) node.children().forEach((c) => start.delete(c.id()));
+    dragGroup = { grabbed: node.id(), origin: { ...node.position() }, start, rootIds };
   });
   cy.on('drag', 'node', (e) => {
     const node = e.target;
     if (!dragGroup || node.id() !== dragGroup.grabbed) return;
-    const s = dragGroup.start.get(node.id());
-    const dx = node.position('x') - s.x;
-    const dy = node.position('y') - s.y;
-    node.parent().children().forEach((c) => {
-      if (c.id() === node.id()) return;
-      const p = dragGroup.start.get(c.id());
-      c.position({ x: p.x + dx, y: p.y + dy });
-    });
+    const dx = node.position('x') - dragGroup.origin.x;
+    const dy = node.position('y') - dragGroup.origin.y;
+    for (const [id, p] of dragGroup.start) {
+      if (id !== node.id()) cy.getElementById(id).position({ x: p.x + dx, y: p.y + dy });
+    }
+    schedulePorts();
   });
   let moved = new Set();
   cy.on('dragfree', 'node', (e) => {
-    dragGroup = null;
-    moved.add(rootIdOf(e.target));
+    if (dragGroup) {
+      dragGroup.rootIds.forEach((r) => moved.add(r));
+      dragGroup = null;
+    } else {
+      moved.add(rootIdOf(e.target));
+    }
     queueMicrotask(() => {
       if (!moved.size) return;
       const entries = [...moved].filter((id) => cy.getElementById(id).nonempty()).map((id) => [id, anchorOf(id)]);
       moved = new Set();
+      updatePorts();
       cb.onMove(entries);
     });
   });

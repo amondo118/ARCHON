@@ -74,3 +74,4 @@
 .settings .panel { margin-bottom: var(--gap); }
 .settings .panel p { margin: 0 0 10px; color: var(--text-2); }
 .settings .danger-zone { border-color: var(--bad); }
+.drop-marker { height: 3px; margin: -2px 2px; border-radius: 2px; background: var(--accent); flex: none; }
