@@ -82,6 +82,10 @@ POST              /backup                   (downloads a consistent .db snapshot
 | `components/` | Modal, toast, object picker, sidebar, object/relationship dialogs, importer (drop zone) |
 | `views/` | Overview, architecture, inspector, tasks, notes, settings. Each `mountX(container)` returns an unmount function. |
 
+**Selection.** `store.selection` (a set) plus `store.selectedId` (the primary, shown in the inspector). The canvas uses Cytoscape's native selection (Shift/Ctrl/Cmd-click, Shift-drag box) and reports changes; the sidebar component list and the inspector read and write the same store. Dragging any selected card moves every selected card.
+
+**Ports.** An edge touching a member row attaches to a dot on that row's left or right side, whichever faces the other end (recomputed while dragging).
+
 **Canvas model.** A top-level object (or a promoted child) is a *root*. An expanded root with children becomes a Cytoscape compound node: a header row plus one row per child, stacked under the stored anchor position. Child positions are computed, never stored. A relationship to a hidden object is drawn to its nearest visible ancestor, and parallel edges are merged (`calls ×3`).
 
 Browser libraries (`cytoscape`, `marked`, `dompurify`, `lucide-static`) are served from `node_modules` under `/vendor/…`: pinned by the lockfile, no CDN.

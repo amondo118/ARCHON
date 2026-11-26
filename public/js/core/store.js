@@ -20,7 +20,8 @@ export const store = {
   relationships: new Map(),
   canvas: null,
   positions: new Map(), // object_id -> { x, y, collapsed }
-  selectedId: null,
+  selectedId: null, // primary selection (shown in the inspector)
+  selection: new Set(), // every selected object id (multi-select)
   moduleFilter: null,
 
   async init() {
@@ -37,6 +38,7 @@ export const store = {
     const g = await api.projects.graph(id);
     if (this.projectId !== id) {
       this.selectedId = null;
+      this.selection = new Set();
       this.moduleFilter = null;
     }
     this.projectId = id;
@@ -46,7 +48,8 @@ export const store = {
     this.relationships = new Map(g.relationships.map((r) => [r.id, r]));
     this.canvas = g.canvas;
     this.positions = new Map(g.positions.map((p) => [p.object_id, { x: p.x, y: p.y, collapsed: p.collapsed }]));
-    if (this.selectedId && !this.objects.has(this.selectedId)) this.selectedId = null;
+    this.selection = new Set([...this.selection].filter((x) => this.objects.has(x)));
+    if (this.selectedId && !this.objects.has(this.selectedId)) this.selectedId = [...this.selection].pop() ?? null;
     bus.emit('graph');
     bus.emit('selection');
   },
@@ -63,11 +66,30 @@ export const store = {
     this.positions = new Map();
     this.modules = [];
     this.selectedId = null;
+    this.selection = new Set();
   },
 
+  /** Select exactly one object (or none). */
   select(id) {
-    this.selectedId = id;
+    this.setSelection(id ? [id] : [], id);
+  },
+
+  /** Replace the selection. `primary` is the object shown in the inspector. */
+  setSelection(ids, primary = null) {
+    const next = new Set(ids.filter((x) => this.objects.has(x)));
+    const prim = next.has(primary) ? primary : next.has(this.selectedId) ? this.selectedId : [...next].pop() ?? null;
+    const same = next.size === this.selection.size && [...next].every((x) => this.selection.has(x)) && prim === this.selectedId;
+    if (same) return;
+    this.selection = next;
+    this.selectedId = prim;
     bus.emit('selection');
+  },
+
+  /** Add or remove one object from the selection (Ctrl/Cmd-click). */
+  toggleSelected(id) {
+    const ids = new Set(this.selection);
+    if (ids.has(id)) ids.delete(id); else ids.add(id);
+    this.setSelection([...ids], ids.has(id) ? id : null);
   },
 
   /** Select an object and ask the canvas to center on it. */
@@ -146,6 +168,7 @@ export const store = {
   async removeObject(id) {
     await saver.flush(); // don't let queued position writes reference a deleted object
     await saver.track(api.objects.remove(id));
+    this.selection.delete(id);
     if (this.selectedId === id) this.selectedId = null;
     await this.reload();
   },

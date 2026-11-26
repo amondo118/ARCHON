@@ -12,11 +12,17 @@ export function h(tag, attrs = {}, ...children) {
     else if (v === true) el.setAttribute(k, '');
     else el.setAttribute(k, v);
   }
-  append(el, children);
+  appendChildren(el, children);
   return el;
 }
 
-function append(el, children) {
+/** Append children like h() does: arrays are flattened, null/false skipped. */
+export function append(el, ...children) {
+  appendChildren(el, children);
+  return el;
+}
+
+function appendChildren(el, children) {
   for (const c of children.flat(Infinity)) {
     if (c == null || c === false) continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));

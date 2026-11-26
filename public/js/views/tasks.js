@@ -13,6 +13,14 @@ export function mountTasks(container) {
   let tasks = [];
   const filters = { q: '', priority: '', linked: '' };
   const board = h('div', { class: 'board' });
+  const marker = h('div', { class: 'drop-marker' });
+
+  /** The card the pointer is above (insert before it), or null for the end of the column. */
+  const cardAfterPointer = (body, y) => [...body.querySelectorAll('.task-card:not(.dragging)')]
+    .find((c) => {
+      const r = c.getBoundingClientRect();
+      return y < r.top + r.height / 2;
+    }) ?? null;
 
   const q = h('input', { class: 'input', type: 'search', placeholder: 'Filter tasks…', style: 'width:220px' });
   q.addEventListener('input', () => { filters.q = q.value.toLowerCase(); render(); });
@@ -46,13 +54,24 @@ export function mountTasks(container) {
       const col = h('section', { class: 'column', 'aria-label': COLUMN_LABEL[status] },
         h('div', { class: 'column-head' }, h('span', {}, COLUMN_LABEL[status] ?? human(status)), h('span', {}, items.length)),
         body);
-      col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drag-over'); });
-      col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+      col.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        col.classList.add('drag-over');
+        const before = cardAfterPointer(body, e.clientY);
+        if (before) body.insertBefore(marker, before); else body.append(marker);
+      });
+      col.addEventListener('dragleave', (e) => {
+        if (col.contains(e.relatedTarget)) return;
+        col.classList.remove('drag-over');
+        marker.remove();
+      });
       col.addEventListener('drop', (e) => {
         e.preventDefault();
         col.classList.remove('drag-over');
+        const before = cardAfterPointer(body, e.clientY);
+        marker.remove();
         const id = e.dataTransfer.getData('text/x-archon-task');
-        if (id) move(id, status);
+        if (id) move(id, status, before?.dataset.task ?? null);
       });
       board.append(col);
     }
@@ -61,7 +80,7 @@ export function mountTasks(container) {
   function card(t) {
     const obj = t.linked_object_id ? store.objects.get(t.linked_object_id) : null;
     const el = h('article', {
-      class: `task-card prio-${t.priority}`, draggable: 'true', tabindex: 0,
+      class: `task-card prio-${t.priority}`, draggable: 'true', tabindex: 0, dataset: { task: t.id },
       onClick: () => editTask(t),
       onKeydown: (e) => { if (e.key === 'Enter') editTask(t); },
     },
@@ -78,21 +97,56 @@ export function mountTasks(container) {
       e.dataTransfer.effectAllowed = 'move';
       el.classList.add('dragging');
     });
-    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragend', () => { el.classList.remove('dragging'); marker.remove(); });
     return el;
   }
 
-  async function move(id, status) {
+  /**
+   * Move a task to `status`, placed before task `beforeId` (null = end of column).
+   * Uses the midpoint between neighbours' sort_order; renumbers the column only
+   * when there is no room left between them.
+   */
+  async function move(id, status, beforeId) {
     const t = tasks.find((x) => x.id === id);
-    if (!t || t.status === status) return;
-    const prev = t.status;
-    t.status = status; // optimistic
-    t.sort_order = Date.now();
+    if (!t || beforeId === id) return;
+    const column = tasks.filter((x) => x.status === status && x.id !== id).sort((a, b) => a.sort_order - b.sort_order);
+    let index = beforeId ? column.findIndex((x) => x.id === beforeId) : column.length;
+    if (index < 0) index = column.length;
+    const prev = column[index - 1];
+    const next = column[index];
+    if (t.status === status) {
+      const current = tasks.filter((x) => x.status === status).sort((a, b) => a.sort_order - b.sort_order);
+      const i = current.indexOf(t);
+      if (current[i - 1]?.id === prev?.id && current[i + 1]?.id === next?.id) return; // dropped where it already is
+    }
+
+    const updates = new Map(); // task id -> patch
+    let order;
+    if (!prev && !next) order = Date.now();
+    else if (!prev) order = next.sort_order - 1024;
+    else if (!next) order = prev.sort_order + 1024;
+    else order = Math.floor((prev.sort_order + next.sort_order) / 2);
+
+    if ((prev && order <= prev.sort_order) || (next && order >= next.sort_order)) {
+      // No integer gap left: renumber the whole column with even spacing.
+      const ordered = [...column.slice(0, index), t, ...column.slice(index)];
+      ordered.forEach((x, i) => {
+        const so = (i + 1) * 1024;
+        if (x === t) order = so;
+        else if (x.sort_order !== so) updates.set(x.id, { sort_order: so });
+      });
+    }
+    updates.set(t.id, { status, sort_order: order });
+
+    const snapshot = tasks.map((x) => ({ ...x }));
+    for (const [tid, patch] of updates) Object.assign(tasks.find((x) => x.id === tid), patch); // optimistic
     render();
     try {
-      Object.assign(t, await saver.track(api.tasks.update(id, { status, sort_order: t.sort_order })));
+      for (const [tid, patch] of updates) {
+        Object.assign(tasks.find((x) => x.id === tid), await saver.track(api.tasks.update(tid, patch)));
+      }
     } catch (e) {
-      t.status = prev;
+      tasks = snapshot;
       render();
       toastError(e);
     }

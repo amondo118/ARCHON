@@ -16,6 +16,14 @@ Plan: the 6-milestone plan from [docs/SPEC_REVIEW.md](docs/SPEC_REVIEW.md) §6.
 - Browser (Playwright): import sample, select, edit health, drag a card, connect mode, promote a member, Kanban drag, notes Markdown. All persist across reload, with no console errors.
 - Docker: image builds, container is healthy, runs as uid 1000 with a read-only root filesystem, data persists across restart, backup snapshot passes `integrity_check`.
 
+## Iteration 2 (feedback)
+- ✅ Edges on expanded cards attach to side dots on method/signal rows
+- ✅ Multi-select (Shift/Ctrl/Cmd-click, Shift-drag box) and moving selected cards together; inspector shows bulk health/implementation
+- ✅ Parent modules count objects in their sub-modules
+- ✅ Sidebar tab "Components": searchable object tree, click / Ctrl-click / Shift-click selection synced with the canvas
+- ✅ Kanban: cards drop exactly where released (between cards, on top) and can be reordered within a column
+- 🐛 Fixed: two quick clicks on different nodes counted as a double-click (collapsed cards)
+
 ## Known limitations (v0.1)
 - No authentication. Run it on a private network or behind proxy auth.
 - One canvas per project. Positions are per project, not per module view.

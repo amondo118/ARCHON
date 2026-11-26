@@ -17,6 +17,10 @@ export function mountInspector(container, { navigate }) {
   async function render() {
     const id = store.selectedId;
     const token = ++loadToken;
+    if (store.selection.size > 1) {
+      clear(container).append(...buildMulti());
+      return;
+    }
     if (!id || !store.objects.has(id)) {
       clear(container).append(h('div', { class: 'insp-empty' },
         store.projectId ? 'Select an object on the canvas to inspect it.' : 'No project selected.'));
@@ -146,6 +150,35 @@ export function mountInspector(container, { navigate }) {
       h('button', { class: 'btn sm', style: 'margin-top:6px', onClick: () => navigate('docs', { newFor: o.id }) }, icon('plus', 'sm'), 'New note'));
 
     return [head, general, childSection, relSection, taskSection, noteSection].filter(Boolean);
+  }
+
+  /** Several objects selected: list them and offer bulk status changes. */
+  function buildMulti() {
+    const ids = [...store.selection];
+    const objs = ids.map((x) => store.objects.get(x)).filter(Boolean);
+    const bulk = async (patch) => {
+      try {
+        for (const o of objs) await store.updateObject(o.id, patch);
+      } catch (e) { toastError(e); }
+    };
+    const seg = (field, values) => h('div', { class: 'segmented' }, values.map((v) => h('button', {
+      type: 'button',
+      class: objs.every((o) => o[field] === v) ? 'on' : '',
+      style: `--sel:var(--${v}, var(--accent))`,
+      onClick: () => bulk({ [field]: v }),
+    }, human(v))));
+    return [
+      h('div', { class: 'insp-head' }, h('div', { class: 'name' }, `${objs.length} objects selected`),
+        h('div', { class: 'hint' }, 'Drag any of them on the canvas to move them together. Ctrl/Cmd-click to add or remove.')),
+      section('Set for all',
+        h('div', { class: 'field' }, h('label', {}, 'Health'), seg('health_status', store.meta.healthStatuses)),
+        h('div', { class: 'field' }, h('label', {}, 'Implementation'), seg('implementation_status', store.meta.implementationStatuses))),
+      section('Selection', h('ul', { class: 'row-list' }, objs.map((o) => h('li', {},
+        h('span', { class: 'type-tag' }, o.type.slice(0, 4)),
+        h('button', { class: 'link grow mono', onClick: () => store.focus(o.id) }, store.pathOf(o.id)),
+        statusBadge(o.health_status),
+        h('span', { class: 'actions' }, iconButton('x', 'Remove from selection', () => store.toggleSelected(o.id), 'ghost sm')))))),
+    ];
   }
 
   function quickAddChild(o) {

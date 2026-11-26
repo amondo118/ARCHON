@@ -62,7 +62,7 @@ export function mountArchitecture(container) {
       moduleIds: filterModuleIds(),
       hiddenRelTypes,
     }),
-    onSelect: (id) => store.select(id),
+    onSelectionChange: (ids, primary) => store.setSelection(ids, primary),
     onEdgeTap: (relIds) => edgeDialog(relIds),
     onConnect: (s, t) => relationshipDialog(s, t),
     onMove: (entries) => store.setPositions(entries),
@@ -120,7 +120,7 @@ export function mountArchitecture(container) {
     closeMenu();
     const o = store.objects.get(objId);
     if (!o) return;
-    store.select(objId);
+    if (!store.selection.has(objId)) store.select(objId);
     const isContainer = store.meta.containerTypes.includes(o.type);
     const hasKids = store.childrenOf(rootId).length > 0;
     const collapsed = store.positions.get(rootId)?.collapsed;
@@ -149,21 +149,22 @@ export function mountArchitecture(container) {
     if (typing(e)) return;
     if (e.key === 'c' || e.key === 'C') toggleConnect();
     else if (e.key === '/') { e.preventDefault(); search.focus(); }
-    else if ((e.key === 'Delete' || e.key === 'Backspace') && store.selectedId) deleteObjectFlow(store.selectedId);
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && store.selection.size === 1) deleteObjectFlow(store.selectedId);
+    else if (e.key === 'Escape') store.select(null);
     else if (e.key === 'f') canvas.fit();
   };
   document.addEventListener('keydown', onKey);
 
   // ---- store subscriptions
   const offs = [
-    store.on('graph', () => { canvas.sync(); canvas.select(store.selectedId); }),
+    store.on('graph', () => { canvas.sync(); canvas.select(store.selection); }),
     store.on('filter', () => canvas.sync()),
-    store.on('selection', () => canvas.select(store.selectedId)),
+    store.on('selection', () => canvas.select(store.selection)),
     store.on('focus', (id) => canvas.focus(id)),
   ];
 
   canvas.sync();
-  canvas.select(store.selectedId);
+  canvas.select(store.selection);
   requestAnimationFrame(() => {
     canvas.cy.resize();
     if (store.selectedId) canvas.focus(store.selectedId); else canvas.fit();
@@ -180,5 +181,5 @@ export function mountArchitecture(container) {
 function legend() {
   return h('div', { class: 'canvas-legend' },
     store.meta.relationshipTypes.map((t) => h('span', {}, h('i', { style: `background:var(--rel-${t})` }), human(t))),
-    h('span', {}, '· dashed border = planned · right-click for actions · double-click to collapse'));
+    h('span', {}, '· dashed border = planned · Shift/Ctrl-click or Shift-drag to multi-select · right-click for actions · double-click to collapse'));
 }

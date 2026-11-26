@@ -1,6 +1,17 @@
 import { DIM } from './elements.js';
 
 /** Cytoscape stylesheet built from the CSS theme variables (no hardcoded colors). */
+// Member rows get connection dots on their sides; edges attach exactly there.
+const ROW_W = DIM.width - 12;
+const ROW_H = DIM.row - 2;
+const PORT_X = ROW_W / 2 - 4;
+
+function portImage(left, right, color) {
+  const dot = (cx) => `<circle cx="${cx}" cy="${ROW_H / 2}" r="3.5" fill="${color}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ROW_W}" height="${ROW_H}">${left ? dot(4) : ''}${right ? dot(ROW_W - 4) : ''}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 export function canvasStyle(relationshipTypes) {
   const css = getComputedStyle(document.documentElement);
   const v = (name) => css.getPropertyValue(`--${name}`).trim();
@@ -57,8 +68,8 @@ export function canvasStyle(relationshipTypes) {
     {
       selector: 'node.member',
       style: {
-        height: DIM.row - 2,
-        width: DIM.width - 12,
+        height: ROW_H,
+        width: ROW_W,
         'background-opacity': 0,
         'border-width': 0,
         'text-halign': 'center',
@@ -67,6 +78,17 @@ export function canvasStyle(relationshipTypes) {
         'font-size': 11,
       },
     },
+    ...[['l', true, false], ['r', false, true], ['lr', true, true]].map(([cls, l, r]) => ({
+      selector: `node.member.ports-${cls}`,
+      style: {
+        'background-image': portImage(l, r, v('accent')),
+        'background-fit': 'none',
+        'background-clip': 'none',
+        'background-image-opacity': 1,
+        'background-width': ROW_W,
+        'background-height': ROW_H,
+      },
+    })),
     health('good'), health('warning'), health('bad'), health('unreviewed'),
     { selector: 'node.member[health = "warning"]', style: { color: v('warning') } },
     { selector: 'node.member[health = "bad"]', style: { color: v('bad') } },
@@ -107,6 +129,10 @@ export function canvasStyle(relationshipTypes) {
     { selector: 'edge.rel-depends_on', style: { 'line-style': 'dashed' } },
     { selector: 'edge.rel-signal', style: { 'line-style': 'dotted', width: 2 } },
     { selector: 'edge.rel-references', style: { width: 1 } },
+    { selector: 'edge.src-r', style: { 'source-endpoint': `${PORT_X}px 0px` } },
+    { selector: 'edge.src-l', style: { 'source-endpoint': `${-PORT_X}px 0px` } },
+    { selector: 'edge.tgt-r', style: { 'target-endpoint': `${PORT_X}px 0px` } },
+    { selector: 'edge.tgt-l', style: { 'target-endpoint': `${-PORT_X}px 0px` } },
     { selector: 'edge:selected', style: { width: 3, 'overlay-color': v('accent'), 'overlay-opacity': 0.15 } },
     { selector: 'edge.ghost', style: { events: 'no', 'line-style': 'dashed', 'line-color': v('accent'), 'target-arrow-color': v('accent'), label: '' } },
     { selector: 'node.ghost', style: { events: 'no', width: 1, height: 1, opacity: 0, label: '' } },
