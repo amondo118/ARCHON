@@ -19,7 +19,21 @@ export function createCanvas(container, { getData, relationshipTypes, ...cb }) {
     maxZoom: 3,
     boxSelectionEnabled: true, // shift + drag on the background
     selectionType: 'single', // Shift/Ctrl/Cmd + click adds to the selection
+    userZoomingEnabled: false, // wheel zoom is handled below (faster, cursor-anchored)
   });
+
+  // ---------------------------------------------------------------- wheel zoom
+  // Cytoscape's default wheel zoom is slow. Each wheel "notch" (~100px) zooms
+  // by about 35%, centered on the cursor. Trackpad pinch (ctrl+wheel) works too.
+  const ZOOM_PER_PIXEL = 0.003;
+  container.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    const speed = e.ctrlKey ? ZOOM_PER_PIXEL * 3 : ZOOM_PER_PIXEL; // pinch gestures send small deltas
+    const level = Math.min(cy.maxZoom(), Math.max(cy.minZoom(), cy.zoom() * Math.exp(-px * speed)));
+    const rect = container.getBoundingClientRect();
+    cy.zoom({ level, renderedPosition: { x: e.clientX - rect.left, y: e.clientY - rect.top } });
+  }, { passive: false });
 
   let signature = '';
   let repOf = () => null;
